@@ -19,6 +19,10 @@ const MAPBOX_STYLE = "mapbox://styles/mapbox/dark-v11";
 const INITIAL_CENTER = [150.8, -33.9]; // NSW-ish
 const INITIAL_ZOOM = 5;
 
+// 🔐 Simple password (from env, with fallback for local)
+const RAW_PASSWORD = import.meta.env.VITE_APP_PASSWORD;
+const APP_PASSWORD = (RAW_PASSWORD ?? "changeme123").trim();
+
 // ---------- helpers ----------
 
 function toNumber(value) {
@@ -87,6 +91,11 @@ export default function App() {
   const mapRef = useRef(null);
   const [mapReady, setMapReady] = useState(false);
 
+  // 🔐 simple password gate state
+  const [isAuthed, setIsAuthed] = useState(false);
+  const [passwordInput, setPasswordInput] = useState("");
+  const [loginError, setLoginError] = useState("");
+
   // --- install filters ---
 
   // multi-select sale types
@@ -117,7 +126,7 @@ export default function App() {
   const [showInstalls, setShowInstalls] = useState(true);
   const [showLeads, setShowLeads] = useState(true);
 
-  // NEW: display modes: "heat" | "points" | "both"
+  // display modes: "heat" | "points" | "both"
   const [installsDisplay, setInstallsDisplay] = useState("both");
   const [leadsDisplay, setLeadsDisplay] = useState("heat");
 
@@ -226,9 +235,23 @@ export default function App() {
     []
   );
 
+  // ---------- password handler ----------
+
+  const handleLoginSubmit = (e) => {
+    e.preventDefault();
+    if (passwordInput === APP_PASSWORD) {
+      setIsAuthed(true);
+      setLoginError("");
+      setPasswordInput("");
+    } else {
+      setLoginError("Incorrect password. Please try again.");
+    }
+  };
+
   // ---------- map initialisation ----------
 
   useEffect(() => {
+    if (!isAuthed) return; // don't init map until authed
     if (mapRef.current || !mapContainerRef.current) return;
 
     const map = new mapboxgl.Map({
@@ -429,23 +452,28 @@ export default function App() {
     });
 
     return () => {
-      map.remove();
-      mapRef.current = null;
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
+      setMapReady(false);
     };
-  }, [suburbsGeoJson]);
+  }, [isAuthed, suburbsGeoJson]);
 
   // update installs source when filters change
   useEffect(() => {
+    if (!isAuthed) return;
     const map = mapRef.current;
     if (!map || !mapReady) return;
     const source = map.getSource("installs");
     if (source && typeof source.setData === "function") {
       source.setData(installsGeoJson);
     }
-  }, [installsGeoJson, mapReady]);
+  }, [installsGeoJson, mapReady, isAuthed]);
 
   // layer visibility + display modes
   useEffect(() => {
+    if (!isAuthed) return;
     const map = mapRef.current;
     if (!map || !mapReady) return;
 
@@ -492,7 +520,14 @@ export default function App() {
     if (map.getLayer("suburbs-circle")) {
       map.setLayoutProperty("suburbs-circle", "visibility", leadsCircleVisibility);
     }
-  }, [showInstalls, showLeads, installsDisplay, leadsDisplay, mapReady]);
+  }, [
+    showInstalls,
+    showLeads,
+    installsDisplay,
+    leadsDisplay,
+    mapReady,
+    isAuthed,
+  ]);
 
   // ---------- UI helpers ----------
 
@@ -519,7 +554,89 @@ export default function App() {
     setSelectedSaleTypes(values);
   };
 
-  // ---------- render ----------
+  // ---------- password gate render ----------
+
+  if (!isAuthed) {
+    return (
+      <div
+        style={{
+          width: "100vw",
+          height: "100vh",
+          background: "#020617",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "#e5e7eb",
+          fontFamily:
+            "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+        }}
+      >
+        <form
+          onSubmit={handleLoginSubmit}
+          style={{
+            background: "#0b1120",
+            padding: 24,
+            borderRadius: 12,
+            border: "1px solid #1f2937",
+            width: 320,
+            boxShadow: "0 18px 40px rgba(0,0,0,0.45)",
+          }}
+        >
+          <h2 style={{ margin: "0 0 8px 0", fontSize: 20 }}>Think Heatmap</h2>
+          <p style={{ margin: "0 0 16px 0", fontSize: 13, color: "#9ca3af" }}>
+            This map is restricted. Please enter the access password.
+          </p>
+
+          <label
+            htmlFor="password"
+            style={{ display: "block", fontSize: 13, marginBottom: 6 }}
+          >
+            Password
+          </label>
+          <input
+            id="password"
+            type="password"
+            value={passwordInput}
+            onChange={(e) => setPasswordInput(e.target.value)}
+            style={{
+              width: "100%",
+              padding: "6px 8px",
+              borderRadius: 6,
+              border: "1px solid #374151",
+              background: "#020617",
+              color: "#e5e7eb",
+              marginBottom: 10,
+            }}
+          />
+          {loginError && (
+            <p style={{ color: "#f97373", fontSize: 12, marginTop: 0 }}>
+              {loginError}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            style={{
+              marginTop: 8,
+              width: "100%",
+              padding: "8px 10px",
+              borderRadius: 6,
+              border: "none",
+              background: "#22c55e",
+              color: "#022c22",
+              fontWeight: 600,
+              cursor: "pointer",
+              fontSize: 14,
+            }}
+          >
+            Enter
+          </button>
+        </form>
+      </div>
+    );
+  }
+
+  // ---------- main map render ----------
 
   return (
     <div
